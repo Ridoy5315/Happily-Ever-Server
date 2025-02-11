@@ -26,12 +26,37 @@ async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
+
+    const biodatasCollection = client.db("Matrimony").collection("user_biodatas");
+    const usersCollection = client.db("Matrimony").collection("users");
+
+    app.get('/biodatas', async(req, res) => {
+     const result = await biodatasCollection.find().toArray();
+     res.send(result);
+    })
+
+    //post the sign up user data
+    app.post('/user', async(req, res) => {
+      const user = req.body
+      //check email if user doesn't exists
+      const query = {email: user.email};
+      const existingUser = await usersCollection.findOne(query);
+      if(existingUser){
+        return res.send({insertedId: null});
+      }
+
+      const result = await usersCollection.insertOne(user);
+      res.send(result);
+    })
+
+
+
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
     // Ensures that the client will close when you finish/error
-    await client.close();
+//     await client.close();
   }
 }
 run().catch(console.dir);
