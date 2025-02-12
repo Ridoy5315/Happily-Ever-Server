@@ -43,7 +43,7 @@ async function run() {
 
     //middlewares
     const verifyToken = (req, res, next) => {
-      if(!req.headers,authorization){
+      if(!req.headers.authorization){
         return res.status(401).send({message: 'unauthorized access'});
       }
       const token = req.headers.authorization.split(' ')[1];
@@ -84,10 +84,20 @@ async function run() {
       res.send({admin});
     })
 
+    //biodata related api
+    //get biodatas from database
     app.get("/biodatas", async (req, res) => {
       const result = await biodatasCollection.find().toArray();
       res.send(result);
     });
+
+    // get a single biodata details by biodata id from database
+    app.get('/biodata-details/:bioDataId', verifyToken, async(req, res) => {
+      const id = req.params.bioDataId;
+      const query = {bioDataId: id};
+      const result = await biodatasCollection.findOne(query);
+      res.send(result);
+    })
 
     //user related api
     //post the sign up user data
