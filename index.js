@@ -38,51 +38,51 @@ async function run() {
       const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
         expiresIn: "2h",
       });
-      res.send({token});
+      res.send({ token });
     });
 
     //middlewares
     const verifyToken = (req, res, next) => {
-      if(!req.headers.authorization){
-        return res.status(401).send({message: 'unauthorized access'});
+      if (!req.headers.authorization) {
+        return res.status(401).send({ message: "unauthorized access" });
       }
-      const token = req.headers.authorization.split(' ')[1];
+      const token = req.headers.authorization.split(" ")[1];
       jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
-        if(err){
-          return res.status(401).send({message: 'unauthorized access'})
+        if (err) {
+          return res.status(401).send({ message: "unauthorized access" });
         }
         req.decoded = decoded;
         next();
-      })
-    }
+      });
+    };
 
     //use verify admin after verifyToken
-    const verifyAdmin = async(req, res, next) => {
+    const verifyAdmin = async (req, res, next) => {
       const email = req.decoded.email;
-      const query = {email: email}
+      const query = { email: email };
       const user = await usersCollection.findOne(query);
-      const isAdmin = user?.role === 'admin';
-      if(!isAdmin){
-        return res.status(403).send({message: 'forbidden access'});
+      const isAdmin = user?.role === "admin";
+      if (!isAdmin) {
+        return res.status(403).send({ message: "forbidden access" });
       }
       next();
-    }
+    };
 
     //check the user is admin or not
-    app.get('/user/admin/:email', verifyToken, async(req, res) => {
-      const email= req.params.email;
-      if(email !== req.decoded.email){
-        return res.status(403).send({message: 'forbidden access'});
+    app.get("/user/admin/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
+      if (email !== req.decoded.email) {
+        return res.status(403).send({ message: "forbidden access" });
       }
 
-      const query = { email: email};
+      const query = { email: email };
       const user = await usersCollection.findOne(query);
       let admin = false;
-      if(user){
-        admin = user?.role === 'admin';
+      if (user) {
+        admin = user?.role === "admin";
       }
-      res.send({admin});
-    })
+      res.send({ admin });
+    });
 
     //biodata related api
     //get biodatas from database
@@ -92,12 +92,23 @@ async function run() {
     });
 
     // get a single biodata details by biodata id from database
-    app.get('/biodata-details/:bioDataId', verifyToken, async(req, res) => {
+    app.get("/biodata-details/:bioDataId", verifyToken, async (req, res) => {
       const id = req.params.bioDataId;
-      const query = {bioDataId: id};
+      const query = { bioDataId: id };
       const result = await biodatasCollection.findOne(query);
       res.send(result);
-    })
+    });
+
+    //get similar biodata for details page
+    app.get("/bioData-similar", verifyToken, async (req, res) => {
+      // const gender = req.params.gender;
+      const {email, gender} = req.query;
+      console.log(email, gender);
+      const result = await biodatasCollection
+        .find({ bioDataType: gender, contactEmail: { $ne: email } })
+        .toArray();
+      res.send(result);
+    });
 
     //user related api
     //post the sign up user data
@@ -112,6 +123,14 @@ async function run() {
 
       const result = await usersCollection.insertOne(user);
       res.send(result);
+    });
+
+    //check user is premium or not
+    app.get("/user/premium/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
+      const query = { email: email };
+      const result = await usersCollection.findOne(query);
+      res.send({ role: result?.role });
     });
 
     // Send a ping to confirm a successful connection
