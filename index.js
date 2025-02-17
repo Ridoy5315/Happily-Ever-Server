@@ -1,14 +1,16 @@
+require("dotenv").config();
 const express = require("express");
 const app = express();
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
-require("dotenv").config();
+const stripe = require('stripe')(process.env.PAYMENT_SECRET_KEY);
 const port = process.env.PORT || 3000;
 const morgan = require("morgan");
 
 //middleware
 app.use(cors());
 app.use(express.json());
+app.use(morgan('dev'));
 
 const { MongoClient, ServerApiVersion } = require("mongodb");
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.oggyj.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
@@ -103,9 +105,8 @@ async function run() {
     app.get("/bioData-similar", verifyToken, async (req, res) => {
       // const gender = req.params.gender;
       const {email, gender} = req.query;
-      console.log(email, gender);
       const result = await biodatasCollection
-        .find({ bioDataType: gender, contactEmail: { $ne: email } })
+        .find({ bioDataType: gender, contactEmail: { $ne: email } }).limit(3)
         .toArray();
       res.send(result);
     });
@@ -132,6 +133,19 @@ async function run() {
       const result = await usersCollection.findOne(query);
       res.send({ role: result?.role });
     });
+
+    //create payment intent
+    app.post('/create-payment-intent', verifyToken, async(req, res) => {
+      const totalPrice = 5 * 100; //total price in cent
+      const {client_secret} = await stripe.paymentIntents.create({
+        amount: totalPrice,
+        currency: 'usd',
+        automatic_payment_methods: {
+          enabled: true,
+        },
+      });
+      res.send({clientSecret: client_secret})
+    })
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
