@@ -12,7 +12,7 @@ app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
 
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.oggyj.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
@@ -33,6 +33,7 @@ async function run() {
       .db("Matrimony")
       .collection("user_biodatas");
     const usersCollection = client.db("Matrimony").collection("users");
+    const contactRequestCollection = client.db("Matrimony").collection("contact_request");
 
     //jwt related api
     app.post("/jwt", async (req, res) => {
@@ -162,6 +163,14 @@ async function run() {
       res.send(result);
     });
 
+    //get user biodata details
+    app.get('/user/bioData/:email', verifyToken, async(req, res) => {
+      const email = req.params.email;
+      const query = {contactEmail: email};
+      const result = await biodatasCollection.findOne(query);
+      res.send(result);
+    })
+
     //check user is premium or not
     app.get("/user/premium/:email", verifyToken, async (req, res) => {
       const email = req.params.email;
@@ -169,6 +178,28 @@ async function run() {
       const result = await usersCollection.findOne(query);
       res.send({ role: result?.role });
     });
+
+
+    //contact request
+    app.post('/contact-request', verifyToken, async(req, res) => {
+      const contactRequestInfo = req.body;
+      const result = await contactRequestCollection.insertOne(contactRequestInfo);
+      res.send(result);
+    })
+    //get specific user all contact request
+    app.get('/contact-request/:email', verifyToken, async(req, res) => {
+      const email = req.params.email;
+      const filter = { userEmail : email }
+      const result = await contactRequestCollection.find(filter).toArray();
+      res.send(result);
+    })
+    //delete contact request data 
+    app.delete('/contact-request/:id', verifyToken, async (req, res) => {
+      const id = req.params.id;
+      const query = {_id: new ObjectId(id)};
+      const result = await contactRequestCollection.deleteOne(query);
+      res.send(result);
+    })
 
     //create payment intent
     app.post('/create-payment-intent', verifyToken, async(req, res) => {
