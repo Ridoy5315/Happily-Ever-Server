@@ -38,7 +38,7 @@ async function run() {
     app.post("/jwt", async (req, res) => {
       const user = req.body;
       const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
-        expiresIn: "2h",
+        expiresIn: "1d",
       });
       res.send({ token });
     });
@@ -87,6 +87,27 @@ async function run() {
     });
 
     //biodata related api
+    //save user biodata in db
+    app.post("/bioData", verifyToken, async(req, res) => {
+      const bioData = req.body;
+
+      //check email if user doesn't create biodata
+      const query = { contactEmail: bioData.contactEmail };
+      const existingUser = await biodatasCollection.findOne(query);
+      if (existingUser) {
+        return res.send({ insertedId: null });
+      }
+
+      const lastBioDataId = await biodatasCollection.find().sort({bioDataId: -1}).limit(1).toArray();
+      const lastId = lastBioDataId.length > 0 ? lastBioDataId[0].bioDataId : 0;
+      const newBioData = {
+        bioDataId : lastId + 1,
+        ...bioData,
+      }
+
+      const result = await biodatasCollection.insertOne(newBioData);
+      res.send(result);
+    })
     //get biodatas from database
     app.get("/biodatas", async (req, res) => {
       const result = await biodatasCollection.find().toArray();
@@ -96,7 +117,7 @@ async function run() {
     // get a single biodata details by biodata id from database
     app.get("/biodata-details/:bioDataId", verifyToken, async (req, res) => {
       const id = req.params.bioDataId;
-      const query = { bioDataId: id };
+      const query = { bioDataId: parseInt(id) };
       const result = await biodatasCollection.findOne(query);
       res.send(result);
     });
@@ -126,6 +147,21 @@ async function run() {
       res.send(result);
     });
 
+    //change the user info
+    app.patch("/userInfo/:email", verifyToken, async (req, res) => {
+      const userData = req.body;
+      const email = req.params.email;
+      const filter = { email: email };
+      const updatedDoc = {
+        $set: {
+          name: userData.name,
+          image: userData.profileImage,
+        },
+      };
+      const result = await usersCollection.updateOne(filter, updatedDoc);
+      res.send(result);
+    });
+
     //check user is premium or not
     app.get("/user/premium/:email", verifyToken, async (req, res) => {
       const email = req.params.email;
@@ -146,6 +182,8 @@ async function run() {
       });
       res.send({clientSecret: client_secret})
     })
+
+
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
