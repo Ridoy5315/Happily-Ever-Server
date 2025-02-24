@@ -179,6 +179,24 @@ async function run() {
       const result = await usersCollection.findOne(query);
       res.send({ role: result?.role });
     });
+    //count how many user in mongodb
+    app.get("/user/count", verifyToken, verifyAdmin, async(req, res) => {
+      const totalUsers = await biodatasCollection.countDocuments();
+      const maleUsers = await biodatasCollection.countDocuments({ bioDataType: "Male"});
+      const femaleUsers = await biodatasCollection.countDocuments({ bioDataType: "Female"});
+      const premiumUsers = await biodatasCollection.countDocuments({ status: "premium"});
+      const totalRevenue = await contactRequestCollection.countDocuments({ status: "Approve"});
+
+      const result = {
+        totalUsers,
+        maleUsers,
+        femaleUsers,
+        premiumUsers,
+        totalRevenue,
+      }
+
+      res.send(result);
+    })
 
 
     //contact request
