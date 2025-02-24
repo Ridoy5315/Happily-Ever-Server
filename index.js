@@ -34,6 +34,7 @@ async function run() {
       .collection("user_biodatas");
     const usersCollection = client.db("Matrimony").collection("users");
     const contactRequestCollection = client.db("Matrimony").collection("contact_request");
+    const favoritesBiodataCollection = client.db("Matrimony").collection("favorites_Biodata");
 
     //jwt related api
     app.post("/jwt", async (req, res) => {
@@ -198,6 +199,27 @@ async function run() {
       const id = req.params.id;
       const query = {_id: new ObjectId(id)};
       const result = await contactRequestCollection.deleteOne(query);
+      res.send(result);
+    })
+
+    //post the users favorites biodata
+    app.post('/favorite-biodata', verifyToken, async(req, res) => {
+      const favoriteBiodataInfo = req.body;
+      const result = await favoritesBiodataCollection.insertOne(favoriteBiodataInfo);
+      res.send(result);
+    })
+    //get specific user all favorites biodata
+    app.get('/favorite-biodata/:email', verifyToken, async(req, res) => {
+      const email = req.params.email;
+      const filter = { userEmail : email }
+      const result = await favoritesBiodataCollection.find(filter).toArray();
+      res.send(result);
+    })
+    //delete single favorite biodata
+    app.delete('/favorite-biodata/:id', verifyToken, async (req, res) => {
+      const id = req.params.id;
+      const query = {_id: new ObjectId(id)};
+      const result = await favoritesBiodataCollection.deleteOne(query);
       res.send(result);
     })
 
