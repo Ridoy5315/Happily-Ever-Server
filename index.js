@@ -27,7 +27,7 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
 
     const biodatasCollection = client
       .db("Matrimony")
@@ -39,6 +39,9 @@ async function run() {
     const favoritesBiodataCollection = client
       .db("Matrimony")
       .collection("favorites_Biodata");
+    const successStoryCollection = client
+      .db("Matrimony")
+      .collection("success_story");
 
     //jwt related api
     app.post("/jwt", async (req, res) => {
@@ -120,8 +123,58 @@ async function run() {
     });
     //get biodatas from database
     app.get("/biodatas", async (req, res) => {
-      const result = await biodatasCollection.find().toArray();
-      res.send(result);
+      const min = parseInt(req.query?.min);
+      const max = parseInt(req.query?.max);
+      const gender = req.query?.gender;
+      const division = req.query?.division;
+      let query = {};
+      if(min && max){
+        query = {
+          age: { $gte: min, $lte: max },
+        };
+      }
+      if(gender){
+        query = {
+          ...query,
+          bioDataType: gender,
+        };
+      }
+      if(division){
+        query = {
+          ...query,
+          permanentDivisionName: division,
+        };
+      }
+      const allBiodatasResult = await biodatasCollection.find(query).toArray();
+      const premiumBiodatasResult = await usersCollection.aggregate([
+        {
+          $match: {role: "premium"},
+        },
+        {
+          $lookup: {
+            from: "user_biodatas",
+            localField: "email",
+            foreignField: "contactEmail",
+            as: "userData",
+          },
+        },
+        {
+          $unwind: { path: "$userData", preserveNullAndEmptyArrays: true } 
+        },
+        {
+          $project: {
+            role: 1,
+            bioDataId: "$userData.bioDataId",
+            bioDataType: "$userData.bioDataType",
+            profileImage: "$userData.profileImage",
+            permanentDivisionName: "$userData.permanentDivisionName",
+            occupation: "$userData.occupation",
+            email: "$userData.contactEmail",
+            age: "$userData.age",
+          },
+        },
+      ]).toArray();
+      res.send({allBiodatasResult, premiumBiodatasResult});
     });
 
     // get a single biodata details by biodata id from database
@@ -271,7 +324,7 @@ async function run() {
       res.send(result);
     })
 
-    //count how many user in mongodb
+    //count how many user in mongodb for admin dashboard
     app.get("/user/count", verifyToken, verifyAdmin, async (req, res) => {
       const totalUsers = await biodatasCollection.countDocuments();
       const maleUsers = await biodatasCollection.countDocuments({
@@ -280,11 +333,11 @@ async function run() {
       const femaleUsers = await biodatasCollection.countDocuments({
         bioDataType: "Female",
       });
-      const premiumUsers = await biodatasCollection.countDocuments({
-        status: "premium",
+      const premiumUsers = await usersCollection.countDocuments({
+        role: "premium",
       });
       const totalRevenue = await contactRequestCollection.countDocuments({
-        status: "Approve",
+        status: "Approved",
       });
 
       const result = {
@@ -293,6 +346,29 @@ async function run() {
         femaleUsers,
         premiumUsers,
         totalRevenue,
+      };
+
+      res.send(result);
+    });
+    //count how many user in mongodb for homepage
+    app.get("/user-count", async (req, res) => {
+      const totalUsers = await biodatasCollection.countDocuments();
+      const maleUsers = await biodatasCollection.countDocuments({
+        bioDataType: "Male",
+      });
+      const femaleUsers = await biodatasCollection.countDocuments({
+        bioDataType: "Female",
+      });
+      const premiumUsers = await usersCollection.countDocuments({
+        role: "premium",
+      });
+
+
+      const result = {
+        totalUsers,
+        maleUsers,
+        femaleUsers,
+        premiumUsers,
       };
 
       res.send(result);
@@ -314,9 +390,9 @@ async function run() {
     })
 
     //contact request status change
-    app.patch("/contact-request/:email", verifyToken, verifyAdmin, async(req, res) => {
-      const email = req.params.email;
-      const filter = {"requested_Person.email": email};
+    app.patch("/contact-request/:id", verifyToken, verifyAdmin, async(req, res) => {
+      const id = req.params.id;
+      const filter = {_id: new ObjectId(id)};
       const updatedDoc = {
         $set: {
           status: "Approved",
@@ -364,6 +440,19 @@ async function run() {
       res.send(result);
     });
 
+    //post success couple story data and review
+    app.post("/user-married", verifyToken, async(req, res) => {
+      const data = req.body;
+      const result = await successStoryCollection.insertOne(data);
+      res.send(result);
+    })
+
+    //get success couple story data and review
+    app.get("/user-married", async(req, res) => {
+      const result = await successStoryCollection.find().sort({marriageDate: 1}).toArray();
+      res.send(result);
+    })
+
     //create payment intent
     app.post("/create-payment-intent", verifyToken, async (req, res) => {
       const totalPrice = 5 * 100; //total price in cent
@@ -378,10 +467,10 @@ async function run() {
     });
 
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!"
-    );
+    // await client.db("admin").command({ ping: 1 });
+    // console.log(
+    //   "Pinged your deployment. You successfully connected to MongoDB!"
+    // );
   } finally {
     // Ensures that the client will close when you finish/error
     //     await client.close();
