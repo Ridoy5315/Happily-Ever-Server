@@ -7,6 +7,15 @@ const stripe = require("stripe")(process.env.PAYMENT_SECRET_KEY);
 const port = process.env.PORT || 3000;
 const morgan = require("morgan");
 
+const formData = require("form-data");
+const Mailgun = require("mailgun.js");
+const mailgun = new Mailgun(formData);
+
+const mg = mailgun.client({
+  username: "api",
+  key: process.env.MAIL_GUN_API_KEY,
+});
+
 //middleware
 app.use(cors());
 app.use(express.json());
@@ -127,54 +136,68 @@ async function run() {
       const max = parseInt(req.query?.max);
       const gender = req.query?.gender;
       const division = req.query?.division;
+      const page = parseInt(req.query?.page) || 1;
+      const limit = parseInt(req.query.limit) || 6;
+      const skip = (page - 1) * limit;
+
       let query = {};
-      if(min && max){
+      if (min && max) {
         query = {
           age: { $gte: min, $lte: max },
         };
       }
-      if(gender){
+      if (gender) {
         query = {
           ...query,
           bioDataType: gender,
         };
       }
-      if(division){
+      if (division) {
         query = {
           ...query,
           permanentDivisionName: division,
         };
       }
-      const allBiodatasResult = await biodatasCollection.find(query).toArray();
-      const premiumBiodatasResult = await usersCollection.aggregate([
-        {
-          $match: {role: "premium"},
-        },
-        {
-          $lookup: {
-            from: "user_biodatas",
-            localField: "email",
-            foreignField: "contactEmail",
-            as: "userData",
+      const allBiodatasResult = await biodatasCollection
+        .find(query)
+        .skip(skip)
+        .limit(limit)
+        .toArray();
+      const totalBiodatas = await biodatasCollection.countDocuments(query);
+
+      const premiumBiodatasResult = await usersCollection
+        .aggregate([
+          {
+            $match: { role: "premium" },
           },
-        },
-        {
-          $unwind: { path: "$userData", preserveNullAndEmptyArrays: true } 
-        },
-        {
-          $project: {
-            role: 1,
-            bioDataId: "$userData.bioDataId",
-            bioDataType: "$userData.bioDataType",
-            profileImage: "$userData.profileImage",
-            permanentDivisionName: "$userData.permanentDivisionName",
-            occupation: "$userData.occupation",
-            email: "$userData.contactEmail",
-            age: "$userData.age",
+          {
+            $lookup: {
+              from: "user_biodatas",
+              localField: "email",
+              foreignField: "contactEmail",
+              as: "userData",
+            },
           },
-        },
-      ]).toArray();
-      res.send({allBiodatasResult, premiumBiodatasResult});
+          {
+            $unwind: { path: "$userData", preserveNullAndEmptyArrays: true },
+          },
+          {
+            $project: {
+              role: 1,
+              bioDataId: "$userData.bioDataId",
+              bioDataType: "$userData.bioDataType",
+              profileImage: "$userData.profileImage",
+              permanentDivisionName: "$userData.permanentDivisionName",
+              occupation: "$userData.occupation",
+              email: "$userData.contactEmail",
+              age: "$userData.age",
+            },
+          },
+          { $skip: skip },
+          { $limit: limit },
+        ])
+        .toArray();
+      res.send({ allBiodatasResult, premiumBiodatasResult, totalBiodatas, totalPages: Math.ceil(totalBiodatas / limit), currentPage: page, });
     });
 
     // get a single biodata details by biodata id from database
@@ -298,31 +321,38 @@ async function run() {
     });
 
     //get the user who requested for premium to the admin
-    app.get("/user/request-premium", verifyToken, verifyAdmin, async(req, res) => {
-      // const query = { role: "requested_for_premium"};
-      const result = await usersCollection.aggregate([
-        {
-          $match:{role: "requested_for_premium"},
-        },
-        {
-          $lookup: {
-            from: "user_biodatas",
-            localField: "email",
-            foreignField: "contactEmail",
-            as: "id",
-          },
-        },
-        {
-          $project: {
-            name: 1,
-            email: 1,
-            "id.bioDataId": 1,
-          },
-        },
-      ]).toArray();
-      console.log(result)
-      res.send(result);
-    })
+    app.get(
+      "/user/request-premium",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        // const query = { role: "requested_for_premium"};
+        const result = await usersCollection
+          .aggregate([
+            {
+              $match: { role: "requested_for_premium" },
+            },
+            {
+              $lookup: {
+                from: "user_biodatas",
+                localField: "email",
+                foreignField: "contactEmail",
+                as: "id",
+              },
+            },
+            {
+              $project: {
+                name: 1,
+                email: 1,
+                "id.bioDataId": 1,
+              },
+            },
+          ])
+          .toArray();
+        console.log(result);
+        res.send(result);
+      }
+    );
 
     //count how many user in mongodb for admin dashboard
     app.get("/user/count", verifyToken, verifyAdmin, async (req, res) => {
@@ -363,7 +393,6 @@ async function run() {
         role: "premium",
       });
 
-
       const result = {
         totalUsers,
         maleUsers,
@@ -380,27 +409,52 @@ async function run() {
       const result = await contactRequestCollection.insertOne(
         contactRequestInfo
       );
+
+      //send user email about payment confirmation
+      mg.messages
+        .create(process.env.MAIL_SENDING_DOMAIN, {
+          from: "Mailgun Sandbox <postmaster@sandboxd628d01b873b48b3afb4e5324cac041c.mailgun.org>",
+          to: ["ridoy.st99@gmail.com"],
+          subject: "Matrimony Platform Contact Request Confirmation",
+          html: `
+          <div>
+          <h2>thank you for your requesting contact</h2>
+          <h4>Your Transaction Id: <strong>${contactRequestInfo?.transactionId}</strong></h4>
+          <p>Admin will accept your contact request soon, if you are valid user</p>
+          </div>
+          `,
+        })
+        .then((msg) => console.log(msg))
+        .catch((err) => console.log(err));
       res.send(result);
     });
     //get the all contact-request
-    app.get("/contact-request", verifyToken, verifyAdmin, async(req, res) => {
-      const query = {status: "Pending"};
+    app.get("/contact-request", verifyToken, verifyAdmin, async (req, res) => {
+      const query = { status: "Pending" };
       const result = await contactRequestCollection.find(query).toArray();
       res.send(result);
-    })
+    });
 
     //contact request status change
-    app.patch("/contact-request/:id", verifyToken, verifyAdmin, async(req, res) => {
-      const id = req.params.id;
-      const filter = {_id: new ObjectId(id)};
-      const updatedDoc = {
-        $set: {
-          status: "Approved",
-        },
-      };
-      const result = await contactRequestCollection.updateOne(filter, updatedDoc);
-      res.send(result);
-    })
+    app.patch(
+      "/contact-request/:id",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const filter = { _id: new ObjectId(id) };
+        const updatedDoc = {
+          $set: {
+            status: "Approved",
+          },
+        };
+        const result = await contactRequestCollection.updateOne(
+          filter,
+          updatedDoc
+        );
+        res.send(result);
+      }
+    );
 
     //get specific user all contact request
     app.get("/contact-request/:email", verifyToken, async (req, res) => {
@@ -441,17 +495,30 @@ async function run() {
     });
 
     //post success couple story data and review
-    app.post("/user-married", verifyToken, async(req, res) => {
+    app.post("/user-married", verifyToken, async (req, res) => {
       const data = req.body;
       const result = await successStoryCollection.insertOne(data);
       res.send(result);
-    })
+    });
 
     //get success couple story data and review
-    app.get("/user-married", async(req, res) => {
-      const result = await successStoryCollection.find().sort({marriageDate: 1}).toArray();
+    app.get("/user-married", async (req, res) => {
+      const result = await successStoryCollection
+        .find()
+        .sort({ marriageDate: 1 })
+        .toArray();
       res.send(result);
-    })
+    });
+    //get success couple story data and review
+    app.get(
+      "/user-married-story",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const result = await successStoryCollection.find().toArray();
+        res.send(result);
+      }
+    );
 
     //create payment intent
     app.post("/create-payment-intent", verifyToken, async (req, res) => {
@@ -467,13 +534,13 @@ async function run() {
     });
 
     // Send a ping to confirm a successful connection
-    // await client.db("admin").command({ ping: 1 });
-    // console.log(
-    //   "Pinged your deployment. You successfully connected to MongoDB!"
-    // );
+    await client.db("admin").command({ ping: 1 });
+    console.log(
+      "Pinged your deployment. You successfully connected to MongoDB!"
+    );
   } finally {
     // Ensures that the client will close when you finish/error
-    //     await client.close();
+    //   await client.close();
   }
 }
 run().catch(console.dir);
