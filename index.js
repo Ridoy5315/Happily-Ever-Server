@@ -51,6 +51,7 @@ async function run() {
     const successStoryCollection = client
       .db("Matrimony")
       .collection("success_story");
+    const bannerCollection = client.db("Matrimony").collection("banner");
 
     //jwt related api
     app.post("/jwt", async (req, res) => {
@@ -102,6 +103,12 @@ async function run() {
         admin = user?.role === "admin";
       }
       res.send({ admin });
+    });
+
+    //get photo for banner
+    app.get("/banner", async (req, res) => {
+      const result = await bannerCollection.find().toArray();
+      res.send(result);
     });
 
     //biodata related api
